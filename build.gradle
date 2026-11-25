@@ -1,0 +1,104 @@
+import groovy.json.JsonSlurper
+
+plugins {
+	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+	id 'maven-publish'
+}
+
+// Wersja Minecrafta: gradlew build -Pmc=1.21.4 (domyslnie z gradle.properties). Fabric API pobierane z Modrinth.
+def mcv = (project.findProperty('mc') ?: project.minecraft_version).toString()
+def compatGroup = ['1.21', '1.21.1', '1.21.2', '1.21.3', '1.21.4', '1.21.5'].contains(mcv) ? 'a' : 'b'
+def fapi = project.findProperty('fabric_api_version')?.toString()
+if (project.findProperty('mc') != null || fapi == null) {
+	try {
+		def url = new URL('https://api.modrinth.com/v2/project/fabric-api/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%22' + mcv + '%22%5D')
+		def conn = url.openConnection(); conn.setRequestProperty('User-Agent', 'NiceClient/1.0')
+		def list = new JsonSlurper().parse(conn.inputStream)
+		if (list) fapi = list[0].version_number
+	} catch (Exception e) { println 'Nie udalo sie pobrac wersji Fabric API z Modrinth: ' + e }
+}
+if (fapi == null) throw new GradleException('Podaj -Pfabric_api_version=... dla Minecrafta ' + mcv)
+println "Nice Client: Minecraft ${mcv}, Fabric API ${fapi}, compat ${compatGroup}"
+
+
+repositories {
+	// Add repositories to retrieve artifacts from in here.
+	// You should only use this when depending on other mods because
+	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
+	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
+	// for more information about repositories.
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"niceclient" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+dependencies {
+	// To change the versions see the gradle.properties file
+	minecraft "com.mojang:minecraft:${mcv}"
+	mappings loom.officialMojangMappings()
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+
+	// Fabric API. This is technically optional, but you probably want it anyway.
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${fapi}"
+}
+
+version = "${project.version}+mc${mcv}"
+base.archivesName = 'niceclient'
+sourceSets.client.java.srcDir "src/compat/${compatGroup}/java"
+
+processResources {
+	def version = project.version
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version, "mc_dep": mcv
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 21
+}
+
+java {
+	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
+	// if it is present.
+	// If you remove this line, sources will not be generated.
+	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
+}
+
+jar {
+	def projectName = project.name
+	inputs.property "projectName", projectName
+
+	from("LICENSE") {
+		rename { "${it}_$projectName"}
+	}
+}
+
+// configure the maven publication
+publishing {
+	publications {
+		create("mavenJava", MavenPublication) {
+			from components.java
+		}
+	}
+
+	// See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
+	repositories {
+		// Add repositories to publish to here.
+		// Notice: This block does NOT have the same function as the block in the top level.
+		// The repositories here will be used for publishing your artifact, not for
+		// retrieving dependencies.
+	}
+}
