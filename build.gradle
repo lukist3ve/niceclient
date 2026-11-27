@@ -78,6 +78,7 @@ java {
 }
 
 jar {
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 	def projectName = project.name
 	inputs.property "projectName", projectName
 
